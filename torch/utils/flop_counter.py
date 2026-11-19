@@ -323,7 +323,7 @@ def conv_backward_flop(
         _dilation,
         transposed,
         _output_padding,
-        _groups,
+        groups,
         output_mask,
         out_shape,
         **kwargs) -> int:
@@ -396,8 +396,14 @@ def conv_backward_flop(
     {AD + BE + CF, AE + BF + CG} [out (grad_weight)]
 
     For the full backwards formula, there are also some details involving
-    transpose of the batch/channel dimensions and groups, but I skip those for
-    the sake of brevity (and they're pretty similar to matmul backwards)
+    transpose of the batch/channel dimensions, but I skip those for the sake of
+    brevity (and they're pretty similar to matmul backwards)
+
+    Groups: w_shape already holds C_in // groups, so the forward and grad_inp
+    counts are per-group. The grad_weight conv is written with the channel
+    dimensions transposed into the batch / filter slots, which pairs every
+    input channel with every output channel, i.e. it counts a dense conv.
+    Only channels in the same group interact, so that term is divided by groups.
 
     Check [conv backwards decomposition as conv forwards]
     """
@@ -410,10 +416,14 @@ def conv_backward_flop(
         grad_weight_shape = get_shape(out_shape[1])
         if transposed:
             # grad_weight of transposed conv as conv(grad_out, inp)
-            flop_count += conv_flop_count(t(grad_out_shape), t(x_shape), t(grad_weight_shape), transposed=False)
+            flop_count += conv_flop_count(
+                t(grad_out_shape), t(x_shape), t(grad_weight_shape), transposed=False
+            ) // groups
         else:
             # grad_weight as conv(inp, grad_out)
-            flop_count += conv_flop_count(t(x_shape), t(grad_out_shape), t(grad_weight_shape), transposed=False)
+            flop_count += conv_flop_count(
+                t(x_shape), t(grad_out_shape), t(grad_weight_shape), transposed=False
+            ) // groups
 
     return flop_count
 
